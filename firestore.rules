@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isEmailVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    // Shipments Collection
+    match /shipments/{shipmentId} {
+      // Anyone can look up a specific shipment if they have the ID (Tracking)
+      allow get: if true;
+      
+      // Only authenticated admins can list all shipments or create/edit/delete
+      // In a real app, you'd check for a specific admin email or role
+      allow list, write: if isSignedIn() && isEmailVerified();
+    }
+  }
+}
