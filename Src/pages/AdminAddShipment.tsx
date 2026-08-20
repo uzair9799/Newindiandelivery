@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Package, MapPin, Calendar, ClipboardList, Send, CheckCircle2 } from 'lucide-react';
+import { Package, MapPin, Calendar, ClipboardList, Send, CheckCircle2, Crown, ShieldCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth, handleFirestoreError, OperationType } from '../lib/firebase';
 import { ShipmentStatus } from '../types';
 import { cn } from '../lib/utils';
+import { OWNER_EMAIL, isMainAdmin } from '../constants';
 
 export default function AdminAddShipment() {
   const [loading, setLoading] = useState(false);
@@ -59,11 +60,26 @@ export default function AdminAddShipment() {
     }
   };
 
+  const currentUser = auth.currentUser;
+  const isAdmin = isMainAdmin(currentUser?.email);
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <header>
-        <h2 className="text-3xl font-bold text-white tracking-tight">Create New Shipment</h2>
-        <p className="text-zinc-400 mt-1">Register a new parcel within the Indian Delivery Ltd network.</p>
+      <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold text-white tracking-tight">Create New Shipment</h2>
+          <p className="text-zinc-400 mt-1">Register a new consignment within the fleet network.</p>
+        </div>
+        <div className={cn(
+          "px-4 py-2 rounded-2xl border text-xs flex items-center gap-2",
+          isAdmin ? "bg-amber-500/10 border-amber-500/30 text-amber-300" : "bg-blue-500/10 border-blue-500/30 text-blue-300"
+        )}>
+          {isAdmin ? <Crown size={16} className="text-amber-400" /> : <ShieldCheck size={16} className="text-blue-400" />}
+          <div>
+            <p className="font-bold">{isAdmin ? "Admin Booking" : "Staff Booking"}</p>
+            <p className="text-[10px] opacity-75">{currentUser?.email || 'Logged In'}</p>
+          </div>
+        </div>
       </header>
 
       <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-8 backdrop-blur-md">

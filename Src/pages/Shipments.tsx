@@ -1,12 +1,12 @@
-import { Search, Filter, MoreHorizontal, ArrowRight, ExternalLink, Loader2, Edit2, X, Save, History, Clock, User as UserIcon, Package } from 'lucide-react';
+import { Search, Filter, MoreHorizontal, ArrowRight, ExternalLink, Loader2, Edit2, X, Save, History, Clock, User as UserIcon, Package, ShieldCheck, ShieldAlert, Crown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, useEffect } from 'react';
-import { collection, query, orderBy, limit, getDocs, doc, updateDoc, serverTimestamp, arrayUnion, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, limit, getDocs, doc, updateDoc, serverTimestamp, arrayUnion, onSnapshot, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { Shipment, ShipmentStatus } from '../types';
 import { onAuthStateChanged } from 'firebase/auth';
-import { OWNER_EMAIL } from '../constants';
+import { OWNER_EMAIL, isMainAdmin } from '../constants';
 
 const STATUS_OPTIONS: ShipmentStatus[] = ['Pending', 'In Transit', 'Out for Delivery', 'Delivered', 'Delayed', 'Cancelled', 'In Warehouse'];
 
@@ -301,25 +301,76 @@ function EditShipmentModal({ shipment, onClose, onSave }: EditModalProps) {
 export default function Shipments() {
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [editingShipment, setEditingShipment] = useState<Shipment | null>(null);
   const [viewingAudit, setViewingAudit] = useState<Shipment | null>(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(auth.currentUser?.email || null);
 
   useEffect(() => {
-    setLoading(true);
-    const q = query(collection(db, 'shipments'), orderBy('createdAt', 'desc'), limit(50));
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Shipment));
-      setShipments(data);
-      setLoading(false);
-    }, (error) => {
-      console.error("Snapshot error:", error);
-      handleFirestoreError(error, OperationType.LIST, 'shipments');
-      setLoading(false);
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      const email = user?.email || null;
+      setCurrentUserEmail(email);
+      setLoading(true);
+
+      const isAdmin = isMainAdmin(email);
+
+      // Main admin gets all shipments; other users get only shipments NOT created by uzair9799@gmail.com
+      let q;
+      if (isAdmin) {
+        q = query(collection(db, 'shipments'), orderBy('createdAt', 'desc'), limit(100));
+      } else {
+        q = query(
+          collection(db, 'shipments'),
+          where('createdByEmail', '!=', OWNER_EMAIL),
+          limit(100)
+        );
+      }
+
+      const unsubscribeSnapshot = onSnapshot(
+        q,
+        (snapshot) => {
+          let data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Shipment));
+          
+          // Defense-in-depth client-side filter for non-admin accounts
+          if (!isAdmin) {
+            data = data.filter(
+              (s) => s.createdByEmail?.toLowerCase() !== OWNER_EMAIL.toLowerCase()
+            );
+          }
+          
+          setShipments(data);
+          setLoading(false);
+        },
+        (error) => {
+          console.error("Snapshot error:", error);
+          // Fallback query if index is needed
+          handleFirestoreError(error, OperationType.LIST, 'shipments');
+          setLoading(false);
+        }
+      );
+
+      return () => unsubscribeSnapshot();
     });
 
-    return () => unsubscribe();
+    return () => unsubAuth();
   }, []);
+
+  const isAdmin = isMainAdmin(currentUserEmail);
+
+  const filteredShipments = shipments.filter((s) => {
+    const matchesSearch =
+      !searchTerm ||
+      s.trackingNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.senderName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.recipientName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.origin?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.destination?.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesStatus = statusFilter === 'ALL' || s.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
   const getStatusColor = (status: ShipmentStatus) => {
     switch (status) {
       case 'In Transit': return 'text-blue-500 bg-blue-500/10 border-blue-500/20';
@@ -334,23 +385,62 @@ export default function Shipments() {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      {/* Access Scope Notification Bar */}
+      <div className={cn(
+        "p-4 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs",
+        isAdmin 
+          ? "bg-amber-500/10 border-amber-500/30 text-amber-300"
+          : "bg-blue-500/10 border-blue-500/30 text-blue-300"
+      )}>
+        <div className="flex items-center gap-2.5">
+          {isAdmin ? (
+            <Crown className="text-amber-400 shrink-0" size={18} />
+          ) : (
+            <ShieldCheck className="text-blue-400 shrink-0" size={18} />
+          )}
+          <div>
+            <p className="font-extrabold uppercase tracking-wide">
+              {isAdmin ? "Master Admin Level (Full Access)" : "Restricted Staff Level"}
+            </p>
+            <p className="opacity-80 text-[11px] mt-0.5">
+              {isAdmin 
+                ? `Logged in as ${currentUserEmail || OWNER_EMAIL} — you can see all fleet shipments including your own administrative bookings.` 
+                : `Logged in as ${currentUserEmail || 'Staff'} — shipments created by Main Admin (${OWNER_EMAIL}) are hidden from this view.`}
+            </p>
+          </div>
+        </div>
+        <span className={cn(
+          "px-3 py-1 rounded-full font-mono font-bold text-[10px] uppercase tracking-wider shrink-0",
+          isAdmin ? "bg-amber-500/20 text-amber-200 border border-amber-500/40" : "bg-blue-500/20 text-blue-200 border border-blue-500/40"
+        )}>
+          {isAdmin ? "Master Mode" : "Staff Mode"}
+        </span>
+      </div>
+
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-3xl font-bold text-white tracking-tight">Shipments</h2>
-          <p className="text-zinc-400 mt-1">Manage and track your global fleet performance</p>
+          <p className="text-zinc-400 mt-1">Manage and track fleet consignments across all routes</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="relative">
             <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
             <input 
               type="text" 
-              placeholder="Search tracking ID, sender..."
-              className="bg-zinc-900 border border-zinc-800 rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50 w-[240px] md:w-[320px]"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search tracking ID, sender, route..."
+              className="bg-zinc-900 border border-zinc-800 rounded-xl pl-10 pr-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500/50 w-[240px] md:w-[320px]"
             />
           </div>
-          <button className="p-2 bg-zinc-900 border border-zinc-800 rounded-xl hover:bg-zinc-800 transition-colors">
-            <Filter size={20} className="text-zinc-400" />
-          </button>
+          <select 
+            value={statusFilter} 
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-sm text-zinc-300 focus:outline-none focus:ring-2 focus:ring-orange-500/50"
+          >
+            <option value="ALL">All Statuses</option>
+            {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
         </div>
       </header>
 
@@ -363,7 +453,7 @@ export default function Shipments() {
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-zinc-500">Origin / Destination</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-zinc-500">Status</th>
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-zinc-500">Est. Delivery</th>
-                {auth.currentUser?.email === OWNER_EMAIL && (
+                {isAdmin && (
                   <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-orange-500/70">Audit Trail</th>
                 )}
                 <th className="px-6 py-4 text-xs font-bold uppercase tracking-wider text-zinc-500 text-right">Actions</th>
@@ -372,22 +462,26 @@ export default function Shipments() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="py-20 text-center">
+                  <td colSpan={isAdmin ? 6 : 5} className="py-20 text-center">
                     <Loader2 className="animate-spin mx-auto text-orange-500" size={32} />
                     <p className="text-zinc-500 mt-4 font-medium">Loading shipments...</p>
                   </td>
                 </tr>
-              ) : shipments.length === 0 ? (
+              ) : filteredShipments.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-20 text-center text-zinc-500">
-                    No shipments found. Start by creating one from the sidebar.
+                  <td colSpan={isAdmin ? 6 : 5} className="py-20 text-center text-zinc-500">
+                    {searchTerm || statusFilter !== 'ALL' 
+                      ? "No shipments match your search filters."
+                      : isAdmin 
+                        ? "No shipments found. Create your first shipment."
+                        : "No non-admin shipments found in your view."}
                   </td>
                 </tr>
-              ) : shipments.map((shipment, idx) => (
+              ) : filteredShipments.map((shipment, idx) => (
                 <motion.tr
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: idx * 0.05 }}
+                  transition={{ delay: idx * 0.03 }}
                   key={shipment.id}
                   className="group hover:bg-zinc-800/30 transition-all border-b border-zinc-800/50 last:border-0"
                 >
@@ -421,14 +515,14 @@ export default function Shipments() {
                   <td className="px-6 py-5">
                     <span className="text-sm text-zinc-400">{shipment.estimatedDeliveryDate}</span>
                   </td>
-                  {auth.currentUser?.email === OWNER_EMAIL && (
+                  {isAdmin && (
                     <td className="px-6 py-5">
                       <div className="flex flex-col gap-1.5 min-w-[140px]">
                         <div className="flex items-center gap-2 text-[10px]">
                           <div className="w-1.5 h-1.5 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.5)]"></div>
                           <span className="text-zinc-500 font-bold uppercase whitespace-nowrap">Created by</span>
                           <span className="text-orange-500 font-bold ml-auto truncate max-w-[120px]" title={shipment.createdByEmail}>
-                            {shipment.createdByEmail === OWNER_EMAIL ? 'You' : (shipment.createdByEmail || 'System')}
+                            {shipment.createdByEmail === OWNER_EMAIL ? 'Admin (You)' : (shipment.createdByEmail || 'Staff')}
                           </span>
                         </div>
                         
@@ -459,7 +553,14 @@ export default function Shipments() {
                       >
                         <Edit2 size={16} />
                       </button>
-                       <button className="p-2 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-white transition-colors">
+                      <button 
+                        onClick={() => {
+                          const url = `/?tracking=${shipment.trackingNumber || shipment.id}`;
+                          window.open(url, '_blank');
+                        }}
+                        className="p-2 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-white transition-colors"
+                        title="Public View"
+                      >
                         <ExternalLink size={16} />
                       </button>
                     </div>
@@ -471,15 +572,11 @@ export default function Shipments() {
         </div>
         
         <div className="px-6 py-4 border-t border-zinc-800 flex items-center justify-between bg-zinc-900/80">
-          <p className="text-xs text-zinc-500 font-medium">Showing <span className="text-white">{shipments.length}</span> of <span className="text-white">...</span> active shipments</p>
-          <div className="flex items-center gap-2">
-            <button className="px-3 py-1 text-xs font-bold text-zinc-400 hover:text-white transition-colors disabled:opacity-30" disabled>Previous</button>
-            <div className="flex items-center gap-1">
-              <button className="w-8 h-8 rounded-lg bg-orange-500 text-orange-950 font-bold text-xs">1</button>
-              <button className="w-8 h-8 rounded-lg hover:bg-zinc-800 text-zinc-400 font-bold text-xs transition-colors">2</button>
-              <button className="w-8 h-8 rounded-lg hover:bg-zinc-800 text-zinc-400 font-bold text-xs transition-colors">3</button>
-            </div>
-            <button className="px-3 py-1 text-xs font-bold text-zinc-400 hover:text-white transition-colors">Next</button>
+          <p className="text-xs text-zinc-500 font-medium">
+            Showing <span className="text-white">{filteredShipments.length}</span> {isAdmin ? 'total' : 'accessible'} shipments
+          </p>
+          <div className="flex items-center gap-2 text-xs text-zinc-500">
+            <span>Status: <strong className="text-emerald-400">Live Synced</strong></span>
           </div>
         </div>
       </div>

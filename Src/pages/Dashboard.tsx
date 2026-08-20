@@ -1,11 +1,12 @@
-import { ArrowUpRight, ArrowDownRight, Package, Truck, Clock, AlertTriangle, Loader2 } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Package, Truck, Clock, AlertTriangle, Loader2, Crown, ShieldCheck } from 'lucide-react';
 import { motion } from 'motion/react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useState, useEffect } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType, auth } from '../lib/firebase';
 import { cn } from '../lib/utils';
 import { onAuthStateChanged } from 'firebase/auth';
+import { OWNER_EMAIL, isMainAdmin } from '../constants';
 
 const data = [
   { name: 'Mon', volume: 4000 },
@@ -20,20 +21,36 @@ const data = [
 export default function Dashboard() {
   const [counts, setCounts] = useState({ total: 0, pending: 0, inTransit: 0, delivered: 0 });
   const [loading, setLoading] = useState(true);
+  const [userEmail, setUserEmail] = useState<string | null>(auth.currentUser?.email || null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
+      const email = user?.email || null;
+      setUserEmail(email);
       if (user) {
-        fetchStats();
+        fetchStats(email);
       } else {
         setLoading(false);
       }
     });
 
-    async function fetchStats() {
+    async function fetchStats(email: string | null) {
       try {
-        const querySnapshot = await getDocs(collection(db, 'shipments'));
-        const docs = querySnapshot.docs.map(d => d.data());
+        const isAdmin = isMainAdmin(email);
+        let docs;
+
+        if (isAdmin) {
+          const querySnapshot = await getDocs(collection(db, 'shipments'));
+          docs = querySnapshot.docs.map(d => d.data());
+        } else {
+          // Query only non-admin shipments to respect firestore security rules
+          const q = query(collection(db, 'shipments'), where('createdByEmail', '!=', OWNER_EMAIL));
+          const querySnapshot = await getDocs(q);
+          docs = querySnapshot.docs
+            .map(d => d.data())
+            .filter(d => d.createdByEmail?.toLowerCase() !== OWNER_EMAIL.toLowerCase());
+        }
+
         setCounts({
           total: docs.length,
           pending: docs.filter(d => d.status === 'Pending').length,
@@ -41,6 +58,7 @@ export default function Dashboard() {
           delivered: docs.filter(d => d.status === 'Delivered').length,
         });
       } catch (err) {
+        console.error('Error fetching dashboard stats:', err);
         handleFirestoreError(err, OperationType.LIST, 'shipments (dashboard stats)');
       } finally {
         setLoading(false);
@@ -50,9 +68,11 @@ export default function Dashboard() {
     return () => unsubscribe();
   }, []);
 
+  const isAdmin = isMainAdmin(userEmail);
+
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center min-h-[400px]">
         <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
       </div>
     );
@@ -69,12 +89,23 @@ export default function Dashboard() {
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold text-white tracking-tight">Indian Delivery <span className="text-orange-500 italic">Ltd</span></h2>
-          <p className="text-zinc-400 mt-1">Global logistics operations overview for <span className="text-white font-medium">May 2024</span></p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button className="px-4 py-2 bg-zinc-900 border border-zinc-800 rounded-xl text-sm font-medium hover:bg-zinc-800 transition-colors">Export Report</button>
-          <button className="px-4 py-2 bg-orange-500 text-orange-950 font-bold rounded-xl text-sm hover:bg-orange-400 transition-colors">Add New Unit</button>
+          <div className="flex items-center gap-3">
+            <h2 className="text-3xl font-bold text-white tracking-tight">Indian Delivery <span className="text-orange-500 italic">Ltd</span></h2>
+            <span className={cn(
+              "px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider flex items-center gap-1",
+              isAdmin 
+                ? "bg-amber-500/20 text-amber-300 border border-amber-500/40" 
+                : "bg-blue-500/20 text-blue-300 border border-blue-500/40"
+            )}>
+              {isAdmin ? <Crown size={12} /> : <ShieldCheck size={12} />}
+              {isAdmin ? "Master Admin View" : "Staff View"}
+            </span>
+          </div>
+          <p className="text-zinc-400 mt-1">
+            {isAdmin 
+              ? `Fleet-wide visibility for ${OWNER_EMAIL} (All admin & regional operations visible)`
+              : `Logged in as ${userEmail || 'Staff'} (Restricted: Main admin shipments protected)`}
+          </p>
         </div>
       </header>
 
@@ -163,9 +194,6 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
-          <button className="mt-6 w-full py-2 bg-zinc-800 text-zinc-300 text-xs font-semibold rounded-xl hover:bg-zinc-700 transition-colors">
-            View All Notifications
-          </button>
         </div>
       </div>
     </div>
