@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Search, Bell, HelpCircle } from 'lucide-react';
 import { auth } from './lib/firebase';
 import { onAuthStateChanged, getRedirectResult } from 'firebase/auth';
+import { OWNER_EMAIL, isMainAdmin } from './constants';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Shipments = lazy(() => import('./pages/Shipments'));
@@ -136,10 +137,12 @@ export default function App() {
                 {user && (
                   <div className="flex items-center gap-3 pl-2">
                     <div className="flex flex-col items-end hidden sm:flex text-right">
-                      <span className="text-xs font-bold text-white line-clamp-1">{user.displayName || 'Authenticated'}</span>
-                      <span className="text-[10px] font-medium text-zinc-500">Admin Account</span>
+                      <span className="text-xs font-bold text-white line-clamp-1">{user.displayName || user.email}</span>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider ${isMainAdmin(user.email) ? 'text-amber-400' : 'text-blue-400'}`}>
+                        {isMainAdmin(user.email) ? 'Main Admin (Owner)' : 'Staff Account'}
+                      </span>
                     </div>
-                    <div className="w-8 h-8 rounded-full bg-orange-500/20 border border-orange-500/30 flex items-center justify-center overflow-hidden">
+                    <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center overflow-hidden ${isMainAdmin(user.email) ? 'border-amber-500 shadow-md shadow-amber-500/30' : 'border-blue-500'}`}>
                        <img src={user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.email}`} alt="User" />
                     </div>
                   </div>

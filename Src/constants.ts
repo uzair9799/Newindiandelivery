@@ -1,5 +1,10 @@
 export const OWNER_EMAIL = 'uzair9799@gmail.com';
 
+export const isMainAdmin = (email?: string | null): boolean => {
+  if (!email) return false;
+  return email.trim().toLowerCase() === OWNER_EMAIL.toLowerCase();
+};
+
 export const TRACKING_STEPS = [
   { status: 'Out for Delivery', location: 'London DC, UK', date: 'May 23, 2024 - 08:30 AM' },
   { status: 'In Transit', location: 'Frankfurt Hub, DE', date: 'May 22, 2024 - 11:45 PM' },
