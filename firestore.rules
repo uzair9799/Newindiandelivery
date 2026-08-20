@@ -10,19 +10,45 @@ service cloud.firestore {
     function isSignedIn() {
       return request.auth != null;
     }
-    
-    function isEmailVerified() {
-      return request.auth.token.email_verified == true;
+
+    function isMainAdmin() {
+      return isSignedIn() && request.auth.token.email.lower() == 'uzair9799@gmail.com';
     }
 
     // Shipments Collection
     match /shipments/{shipmentId} {
-      // Anyone can look up a specific shipment if they have the ID (Tracking)
+      // Anyone can look up a specific shipment if they have the tracking number ID
       allow get: if true;
       
-      // Only authenticated admins can list all shipments or create/edit/delete
-      // In a real app, you'd check for a specific admin email or role
-      allow list, write: if isSignedIn() && isEmailVerified();
+      // Main admin can list all shipments.
+      // Other authenticated users can only list shipments NOT created by uzair9799@gmail.com
+      allow list: if isMainAdmin() || (
+        isSignedIn() && resource.data.createdByEmail.lower() != 'uzair9799@gmail.com'
+      );
+      
+      // Main admin can create any shipment.
+      // Other authenticated users can create shipments under their own email (cannot spoof admin email).
+      allow create: if isSignedIn() && (
+        isMainAdmin() || (
+          request.resource.data.createdByEmail.lower() == request.auth.token.email.lower() &&
+          request.resource.data.createdByEmail.lower() != 'uzair9799@gmail.com'
+        )
+      );
+
+      // Main admin can update any shipment.
+      // Other authenticated users can only update shipments that were not created by the main admin.
+      allow update: if isSignedIn() && (
+        isMainAdmin() || (
+          resource.data.createdByEmail.lower() != 'uzair9799@gmail.com' &&
+          request.resource.data.createdByEmail.lower() != 'uzair9799@gmail.com'
+        )
+      );
+
+      // Main admin can delete any shipment; users can delete their own created shipments.
+      allow delete: if isMainAdmin() || (
+        isSignedIn() && resource.data.createdByEmail.lower() == request.auth.token.email.lower()
+      );
     }
   }
 }
+
