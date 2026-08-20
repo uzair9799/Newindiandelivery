@@ -1,9 +1,10 @@
-import { LayoutDashboard, Package, Truck, Settings, Bell, Search, Menu, X, ArrowUpRight, LogIn, LogOut } from 'lucide-react';
+import { LayoutDashboard, Package, Truck, Settings, Bell, Search, Menu, X, ArrowUpRight, LogIn, LogOut, Crown, Shield } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useState, useEffect } from 'react';
 import { cn } from '../lib/utils';
 import { auth } from '../lib/firebase';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from 'firebase/auth';
+import { OWNER_EMAIL, isMainAdmin } from '../constants';
 
 interface SidebarProps {
   activeTab: string;
@@ -105,15 +106,31 @@ export default function Sidebar({ activeTab, setActiveTab }: SidebarProps) {
                     <LogOut size={14} className="text-zinc-500 group-hover:text-orange-500 transition-colors" />
                   </div>
                 </div>
-                <div className="flex items-center gap-3 px-4 py-2">
+                <div className="flex items-center gap-3 px-3 py-2.5 rounded-2xl bg-zinc-900/60 border border-zinc-800/80">
                   <img 
                     src={user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.email}`} 
-                    className="w-8 h-8 rounded-full border border-orange-500/50" 
+                    className={cn(
+                      "w-9 h-9 rounded-full border-2",
+                      isMainAdmin(user.email) ? "border-amber-500 shadow-md shadow-amber-500/20" : "border-blue-500"
+                    )}
                     alt="User profile"
                   />
                   <div className="flex-1 overflow-hidden text-left">
-                    <p className="text-sm font-bold text-white truncate">{user.displayName || 'Admin'}</p>
-                    <p className="text-[10px] text-zinc-500 truncate">{user.email}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-bold text-white truncate">{user.displayName || 'User'}</p>
+                      {isMainAdmin(user.email) ? (
+                        <Crown size={12} className="text-amber-400 shrink-0" />
+                      ) : (
+                        <Shield size={12} className="text-blue-400 shrink-0" />
+                      )}
+                    </div>
+                    <span className={cn(
+                      "inline-block text-[9px] font-bold uppercase tracking-wider",
+                      isMainAdmin(user.email) ? "text-amber-400" : "text-blue-400"
+                    )}>
+                      {isMainAdmin(user.email) ? "Main Admin (Owner)" : "Staff Access"}
+                    </span>
+                    <p className="text-[10px] text-zinc-500 truncate mt-0.5">{user.email}</p>
                   </div>
                 </div>
               </>
